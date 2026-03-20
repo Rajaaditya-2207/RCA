@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rca-arch"
+version = "11.0.0"
+description = "RCA v11: Ultra-Reasoning Architecture - Combines Mamba SSM, Gated Linear Attention (GLA), and Sliding Window Attention across specialized cognitive zones."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Rajaaditya.R", email = "rajaaditya.aadhi@gmail.com"}
+]
+keywords = [
+    "deep-learning",
+    "nlp",
+    "transformers",
+    "ssm",
+    "mamba",
+    "gla",
+    "linear-attention",
+    "ultra-reasoning",
+    "cuda",
+    "triton"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.20.0",
+    "einops>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "ipython>=8.0.0",
+]
+gpu = [
+    "triton>=2.0.0",
+]
+all = [
+    "triton>=2.0.0",
+    "transformers>=4.30.0",
+    "datasets>=2.0.0",
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rajaaditya/rca-arch"
+Repository = "https://github.com/rajaaditya/rca-arch"
+Issues = "https://github.com/rajaaditya/rca-arch/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+rca = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"

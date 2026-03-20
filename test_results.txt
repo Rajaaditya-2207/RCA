@@ -1,0 +1,222 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\rajaa\AppData\Local\Programs\Python\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: e:\Aditya\RCA
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.7.1
+collecting ... collected 16 items
+
+tests/test_model.py::TestRCAConfig::test_default_config PASSED           [  6%]
+tests/test_model.py::TestRCAConfig::test_presets PASSED                  [ 12%]
+tests/test_model.py::TestRCAConfig::test_validation_fails PASSED         [ 18%]
+tests/test_model.py::TestRCAConfig::test_json_roundtrip PASSED           [ 25%]
+tests/test_model.py::TestRCAModel::test_model_creation PASSED            [ 31%]
+tests/test_model.py::TestRCAModel::test_forward_pass FAILED              [ 37%]
+tests/test_model.py::TestRCAModel::test_forward_with_labels FAILED       [ 43%]
+tests/test_model.py::TestRCAModel::test_generate FAILED                  [ 50%]
+tests/test_model.py::TestRCAModel::test_save_load_pretrained FAILED      [ 56%]
+tests/test_model.py::TestRCAModel::test_different_sequence_lengths FAILED [ 62%]
+tests/test_scan.py::TestParallelScan::test_basic_correctness PASSED      [ 68%]
+tests/test_scan.py::TestParallelScan::test_with_initial_state PASSED     [ 75%]
+tests/test_scan.py::TestParallelScan::test_single_step PASSED            [ 81%]
+tests/test_scan.py::TestParallelScan::test_various_shapes PASSED         [ 87%]
+tests/test_scan.py::TestParallelScan::test_dispatcher PASSED             [ 93%]
+tests/test_scan.py::TestParallelScan::test_gradient_flow FAILED          [100%]
+
+================================== FAILURES ===================================
+_______________________ TestRCAModel.test_forward_pass ________________________
+tests\test_model.py:63: in test_forward_pass
+    out = tiny_model(input_ids)
+          ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:194: in forward
+    h, new_state = layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:116: in forward
+    attn_out = self.attention(h, is_causal=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\attention.py:59: in forward
+    q, k = RotaryPositionEmbedding.apply_rotary(q, k, cos, sin)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\positions.py:92: in apply_rotary
+    q * cos + rotate_half(q) * sin,
+    ^^^^^^^
+E   RuntimeError: The size of tensor a (64) must match the size of tensor b (32) at non-singleton dimension 3
+____________________ TestRCAModel.test_forward_with_labels ____________________
+tests\test_model.py:71: in test_forward_with_labels
+    out = tiny_model(input_ids, labels=labels)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:194: in forward
+    h, new_state = layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:116: in forward
+    attn_out = self.attention(h, is_causal=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\attention.py:59: in forward
+    q, k = RotaryPositionEmbedding.apply_rotary(q, k, cos, sin)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\positions.py:92: in apply_rotary
+    q * cos + rotate_half(q) * sin,
+    ^^^^^^^
+E   RuntimeError: The size of tensor a (64) must match the size of tensor b (32) at non-singleton dimension 3
+_________________________ TestRCAModel.test_generate __________________________
+tests\test_model.py:79: in test_generate
+    out = tiny_model.generate(input_ids, max_new_tokens=5)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\utils\_contextlib.py:124: in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:234: in generate
+    out = self.forward(input_ids, use_cache=True, use_cuda=True)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:194: in forward
+    h, new_state = layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:116: in forward
+    attn_out = self.attention(h, is_causal=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\attention.py:59: in forward
+    q, k = RotaryPositionEmbedding.apply_rotary(q, k, cos, sin)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\positions.py:92: in apply_rotary
+    q * cos + rotate_half(q) * sin,
+    ^^^^^^^
+E   RuntimeError: The size of tensor a (64) must match the size of tensor b (32) at non-singleton dimension 3
+___________________ TestRCAModel.test_save_load_pretrained ____________________
+tests\test_model.py:94: in test_save_load_pretrained
+    out1 = tiny_model(input_ids)
+           ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:194: in forward
+    h, new_state = layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:116: in forward
+    attn_out = self.attention(h, is_causal=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\attention.py:59: in forward
+    q, k = RotaryPositionEmbedding.apply_rotary(q, k, cos, sin)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\positions.py:92: in apply_rotary
+    q * cos + rotate_half(q) * sin,
+    ^^^^^^^
+E   RuntimeError: The size of tensor a (64) must match the size of tensor b (32) at non-singleton dimension 3
+________________ TestRCAModel.test_different_sequence_lengths _________________
+tests\test_model.py:101: in test_different_sequence_lengths
+    out = tiny_model(input_ids)
+          ^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:194: in forward
+    h, new_state = layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\modeling\rca_model.py:116: in forward
+    attn_out = self.attention(h, is_causal=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1776: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\rajaa\AppData\Local\Programs\Python\Python314\Lib\site-packages\torch\nn\modules\module.py:1787: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\attention.py:59: in forward
+    q, k = RotaryPositionEmbedding.apply_rotary(q, k, cos, sin)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\rca\layers\positions.py:92: in apply_rotary
+    q * cos + rotate_half(q) * sin,
+    ^^^^^^^
+E   RuntimeError: The size of tensor a (64) must match the size of tensor b (32) at non-singleton dimension 3
+_____________________ TestParallelScan.test_gradient_flow _____________________
+tests\test_scan.py:97: in test_gradient_flow
+    assert gates.grad is not None
+E   assert None is not None
+E    +  where None = tensor([[[0.2691, 0.0291, 0.6026, 0.7992],\n         [0.1537, 0.3944, 0.8249, 0.3275],\n         [0.5073, 0.0702, 0.6557, 0.7901],\n         [0.6971, 0.0972, 0.3490, 0.6725],\n         [0.1572, 0.6951, 0.4340, 0.4770],\n         [0.5094, 0.1750, 0.0087, 0.8836],\n         [0.0707, 0.7783, 0.1901, 0.8890],\n         [0.5243, 0.7057, 0.7095, 0.0460]],\n\n        [[0.1246, 0.3606, 0.2322, 0.5317],\n         [0.6693, 0.5952, 0.8955, 0.1145],\n         [0.8851, 0.1089, 0.6336, 0.4073],\n         [0.7216, 0.3116, 0.4588, 0.4227],\n         [0.1477, 0.6451, 0.2287, 0.1376],\n         [0.6385, 0.5557, 0.6545, 0.4653],\n         [0.3059, 0.8345, 0.6963, 0.4947],\n         [0.8137, 0.7571, 0.0971, 0.0065]]], grad_fn=<MulBackward0>).grad
+============================== warnings summary ===============================
+tests/test_scan.py::TestParallelScan::test_gradient_flow
+  E:\Aditya\RCA\tests\test_scan.py:97: UserWarning: The .grad attribute of a Tensor that is not a leaf Tensor is being accessed. Its .grad attribute won't be populated during autograd.backward(). If you indeed want the .grad field to be populated for a non-leaf Tensor, use .retain_grad() on the non-leaf Tensor. If you access the non-leaf Tensor by mistake, make sure you access the leaf Tensor instead. See github.com/pytorch/pytorch/pull/30531 for more information. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\pytorch\build\aten\src\ATen/core/TensorBody.h:497.)
+    assert gates.grad is not None
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_model.py::TestRCAModel::test_forward_pass - RuntimeError: T...
+FAILED tests/test_model.py::TestRCAModel::test_forward_with_labels - RuntimeE...
+FAILED tests/test_model.py::TestRCAModel::test_generate - RuntimeError: The s...
+FAILED tests/test_model.py::TestRCAModel::test_save_load_pretrained - Runtime...
+FAILED tests/test_model.py::TestRCAModel::test_different_sequence_lengths - R...
+FAILED tests/test_scan.py::TestParallelScan::test_gradient_flow - assert None...
+=================== 6 failed, 10 passed, 1 warning in 5.69s ===================
+
+---STDERR---

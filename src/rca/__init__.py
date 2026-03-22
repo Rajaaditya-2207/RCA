@@ -18,8 +18,13 @@ Quick start::
 
     print(f"Parameters: {model.count_parameters():,}")
 """
+"""
+RCA (Recurrent Cross Attention) Architecture
+A hybrid sequence modeling architecture combining sliding window attention, 
+linear recurrent mechanisms (GLA/SSM), and long-context cross-attention.
+"""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __author__ = "Rajaaditya.R"
 __email__ = "rajaaditya.aadhi@gmail.com"
 

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rca-arch"
-version = "1.0.0"
-description = "RCA v2.0: Ultra-Reasoning Architecture — Mamba SSM + GLA + Sliding Window Attention with Triton/XLA acceleration, gradient checkpointing, and distributed training."
+version = "1.0.1"
+description = "RCA (Recurrent Cross Attention) Architecture - A hybrid sequence modeling architecture"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

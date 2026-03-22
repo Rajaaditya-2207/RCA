@@ -1,0 +1,48 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.14.2, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\rajaa\AppData\Local\Programs\Python\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: E:\Aditya\RCA
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.7.1
+collecting ... collected 38 items
+
+tests/test_all.py::TestGatedLinearAttention::test_shape_output PASSED    [  2%]
+tests/test_all.py::TestGatedLinearAttention::test_single_token PASSED    [  5%]
+tests/test_all.py::TestGatedLinearAttention::test_recurrent_shape PASSED [  7%]
+tests/test_all.py::TestGatedLinearAttention::test_recurrent_state_update PASSED [ 10%]
+tests/test_all.py::TestGatedLinearAttention::test_gradient_flow PASSED   [ 13%]
+tests/test_all.py::TestGatedLinearAttention::test_various_sequence_lengths PASSED [ 15%]
+tests/test_all.py::TestParallelScan::test_basic_correctness PASSED       [ 18%]
+tests/test_all.py::TestParallelScan::test_with_initial_state PASSED      [ 21%]
+tests/test_all.py::TestParallelScan::test_single_step PASSED             [ 23%]
+tests/test_all.py::TestParallelScan::test_various_shapes PASSED          [ 26%]
+tests/test_all.py::TestParallelScan::test_dispatcher PASSED              [ 28%]
+tests/test_all.py::TestParallelScan::test_gradient_flow PASSED           [ 31%]
+tests/test_all.py::TestSlidingWindowAttention::test_short_sequence PASSED [ 34%]
+tests/test_all.py::TestSlidingWindowAttention::test_long_sequence PASSED [ 36%]
+tests/test_all.py::TestSlidingWindowAttention::test_single_token PASSED  [ 39%]
+tests/test_all.py::TestSlidingWindowAttention::test_mqa_variant PASSED   [ 42%]
+tests/test_all.py::TestSlidingWindowAttention::test_mqa_fewer_params PASSED [ 44%]
+tests/test_all.py::TestSlidingWindowAttention::test_gradient_flow PASSED [ 47%]
+tests/test_all.py::TestSlidingWindowAttention::test_no_memory_tokens PASSED [ 50%]
+tests/test_all.py::TestSlidingWindowAttention::test_various_lengths PASSED [ 52%]
+tests/test_all.py::TestRCAConfig::test_default_config PASSED             [ 55%]
+tests/test_all.py::TestRCAConfig::test_presets PASSED                    [ 57%]
+tests/test_all.py::TestRCAConfig::test_validation_fails PASSED           [ 60%]
+tests/test_all.py::TestRCAConfig::test_json_roundtrip PASSED             [ 63%]
+tests/test_all.py::TestRCAModel::test_model_creation PASSED              [ 65%]
+tests/test_all.py::TestRCAModel::test_forward_pass PASSED                [ 68%]
+tests/test_all.py::TestRCAModel::test_forward_with_labels PASSED         [ 71%]
+tests/test_all.py::TestRCAModel::test_generate PASSED                    [ 73%]
+tests/test_all.py::TestRCAModel::test_save_load_pretrained PASSED        [ 76%]
+tests/test_all.py::TestRCAModel::test_different_sequence_lengths PASSED  [ 78%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_config_preset PASSED [ 81%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_model_creation PASSED [ 84%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_layer_zones PASSED [ 86%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_forward_pass PASSED [ 89%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_forward_with_labels PASSED [ 92%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_generate PASSED   [ 94%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_save_load PASSED  [ 97%]
+tests/test_all.py::TestUltraReasoningModel::test_ultra_gradient_flow PASSED [100%]
+
+============================= 38 passed in 10.86s =============================

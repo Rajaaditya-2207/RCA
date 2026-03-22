@@ -1,4 +1,4 @@
-# RCA v2.0 — Recursive Compression Architecture
+# RCA 1.0.0 — Recursive Compression Architecture
 
 **Ultra-Reasoning Architecture** combining Mamba SSM, Gated Linear Attention (GLA), and Sliding Window Attention across specialized cognitive zones — with Triton/XLA-accelerated parallel scan.
 
@@ -8,7 +8,7 @@
 
 ## Why RCA?
 
-| Feature | Transformer | Mamba | **RCA v2.0** |
+| Feature | Transformer | Mamba | **RCA 1.0.0** |
 |---|---|---|---|
 | Training complexity | O(N²) | O(N) | **O(N)** |
 | Generation memory | O(N) KV cache | O(1) | **O(1)** |

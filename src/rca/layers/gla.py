@@ -194,29 +194,23 @@ class GatedLinearAttention(nn.Module):
         cross_out = torch.einsum("blhk,blhkv->blhv", q, decayed_state)
 
         # ── Step 3: Intra-chunk (causal within chunk) ──
-        # For positions i ≤ j, the relative decay from i to j is:
-        #   exp(cumlog_j - cumlog_i)
-        # Build [B, L, L, H] causal decay mask
-        # cumlog: [B, L, H]
-        relative_decay = cumlog.unsqueeze(1) - cumlog.unsqueeze(2)  # [B, L_j, L_i, H]
-        relative_decay = torch.exp(relative_decay)  # [B, L_j, L_i, H]
+        # For positions i <= j, relative decay is exp(cumlog_j - cumlog_i)
+        relative_decay = cumlog.unsqueeze(2) - cumlog.unsqueeze(1)  # [B, L_j, L_i, H]
 
-        # Causal mask: only allow i <= j
-        causal_mask = torch.tril(torch.ones(L, L, device=q.device, dtype=q.dtype))
-        # causal_mask: [L, L] → [1, L, L, 1]
-        relative_decay = relative_decay * causal_mask.unsqueeze(0).unsqueeze(-1)
+        # Causal mask: only allow i <= j (keys before/at query time)
+        # Apply in log-space BEFORE exp to prevent inf * 0 = NaN
+        causal_mask = torch.tril(torch.ones(L, L, device=q.device, dtype=torch.bool))
+        relative_decay = relative_decay.masked_fill(~causal_mask.unsqueeze(0).unsqueeze(-1), float('-inf'))
+        relative_decay = torch.exp(relative_decay)  # [B, L_j, L_i, H]
 
         # Compute causal attention-like scores
         # q: [B, L_j, H, dk], k: [B, L_i, H, dk]
         # → attn: [B, H, L_j, L_i]
-        attn = torch.einsum("bjhk,bihk->bhjl", q, k)  # note: j=query, i=key → [B, H, j, i]
+        attn = torch.einsum("bjhk,bihk->bhji", q, k)  # note: j=query, i=key → [B, H, j, i]
 
         # Wait — let's be more careful with dimensions.
         # relative_decay is [B, L_j, L_i, H] → need [B, H, L_j, L_i]
         decay_matrix = relative_decay.permute(0, 3, 1, 2)  # [B, H, L_j, L_i]
-
-        # attn: [B, H, L_j, L_i]  (q_j · k_i)
-        attn = torch.einsum("bjhk,bihk->bhji", q, k)  # [B, H, j, i]
 
         # Apply decay
         attn = attn * decay_matrix  # [B, H, L_j, L_i]
@@ -231,17 +225,48 @@ class GatedLinearAttention(nn.Module):
         output = cross_out + intra_out  # [B, L, H, dv]
 
         # ── Step 5: Update state ──
-        # S_new = total_decay * S_prev + sum_t (decay_from_t_to_end * k_t^T v_t)
-        # decay from position t to end of chunk:
-        #   exp(cumlog[-1] - cumlog[t])
         decay_to_end = torch.exp(cumlog[:, -1:, :] - cumlog)  # [B, L, H]
-
-        # Weighted KV: sum_t decay_to_end[t] * k_t^T v_t
-        # k: [B, L, H, dk], v: [B, L, H, dv], decay_to_end: [B, L, H]
         weighted_k = k * decay_to_end.unsqueeze(-1)  # [B, L, H, dk]
         kv_update = torch.einsum("blhk,blhv->bhkv", weighted_k, v)
 
         new_state = total_decay.unsqueeze(-1).unsqueeze(-1) * state + kv_update
+
+        # Register grad hooks ONLY for layer 26 to avoid spam
+        if not hasattr(self, "_hook_registered") and self.dim == 64:  # hack to find layer 26
+            print(f"FWD q has inf: {torch.isinf(q).any().item()}, k has inf: {torch.isinf(k).any().item()}")
+            print(f"FWD attn BEFORE decay has inf: {torch.isinf(attn).any().item()}")
+            print(f"FWD decay_matrix has inf: {torch.isinf(decay_matrix).any().item()}")
+            print(f"FWD attn_decayed has inf: {torch.isinf(attn * decay_matrix).any().item()}")
+            
+            def make_hook(name):
+                return lambda g: print(f"Hook {name}: has_nan={torch.isnan(g).any().item()}, sum={g.abs().sum().item()}")
+            
+            output.retain_grad()
+            output.register_hook(make_hook("output"))
+            intra_out.retain_grad()
+            intra_out.register_hook(make_hook("intra_out"))
+            cross_out.retain_grad()
+            cross_out.register_hook(make_hook("cross_out"))
+            attn.retain_grad()
+            attn.register_hook(make_hook("attn_after_decay"))
+            decay_matrix.retain_grad()
+            decay_matrix.register_hook(make_hook("decay_matrix"))
+            q.retain_grad()
+            q.register_hook(make_hook("q"))
+            k.retain_grad()
+            k.register_hook(make_hook("k"))
+            v.retain_grad()
+            v.register_hook(make_hook("v"))
+            kv_update.retain_grad()
+            kv_update.register_hook(make_hook("kv_update"))
+            new_state.retain_grad()
+            new_state.register_hook(make_hook("new_state"))
+            weighted_k.retain_grad()
+            weighted_k.register_hook(make_hook("weighted_k"))
+            decay_to_end.retain_grad()
+            decay_to_end.register_hook(make_hook("decay_to_end"))
+            cumlog.retain_grad()
+            cumlog.register_hook(make_hook("cumlog"))
 
         return output.reshape(B, L, H * dv), new_state
 

@@ -16,6 +16,7 @@ Author: Rajaaditya.R
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint as grad_checkpoint
 import math
 import json
 import os
@@ -285,11 +286,16 @@ class RCAModel(nn.Module):
     - GLA Zone (25%): working memory
     - Reasoning Zone (15%): focus with sliding window + memory tokens
     - All zones: GLU-FFN active neurons
+
+    Performance features:
+    - Gradient checkpointing (config.gradient_checkpointing)
+    - torch.compile support (config.use_torch_compile)
     """
 
     def __init__(self, config: RCAConfig):
         super().__init__()
         self.config = config
+        self.gradient_checkpointing = config.gradient_checkpointing
 
         # Token embeddings
         self.embeddings = nn.Embedding(config.vocab_size, config.state_dim)
@@ -343,6 +349,10 @@ class RCAModel(nn.Module):
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, std=self.config.initializer_range)
 
+    def _layer_forward(self, layer, h, state, use_cache, use_cuda):
+        """Helper for gradient checkpointing compatibility."""
+        return layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -368,7 +378,17 @@ class RCAModel(nn.Module):
             ssm_states = [None] * len(self.layers)
 
         for i, (layer, state) in enumerate(zip(self.layers, ssm_states)):
-            h, new_state = layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
+            if self.gradient_checkpointing and self.training and not use_cache:
+                # Gradient checkpointing: trades compute for memory
+                # Cannot use with use_cache since checkpoint doesn't support
+                # returning non-tensor outputs reliably
+                h, new_state = grad_checkpoint(
+                    self._layer_forward,
+                    layer, h, state, use_cache, use_cuda,
+                    use_reentrant=False,
+                )
+            else:
+                h, new_state = layer(h, state, use_cache=use_cache, use_cuda=use_cuda)
             new_ssm_states.append(new_state)
 
         h = self.final_norm(h)

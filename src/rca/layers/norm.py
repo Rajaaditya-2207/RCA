@@ -2,7 +2,7 @@
 Normalization Layers
 ====================
 
-RMSNorm and DeepNorm implementations.
+RMSNorm (fused) and DeepNorm implementations.
 
 Author: Rajaaditya.R
 """
@@ -14,9 +14,10 @@ import math
 
 class RMSNorm(nn.Module):
     """
-    RMSNorm: x / RMS(x) * gamma
+    Fused RMSNorm: x * rsqrt(mean(x²) + eps) * gamma
 
-    More stable and often better than LayerNorm for language models.
+    Uses rsqrt(mean(x²)) instead of norm(2)/sqrt(D) for better
+    numerical performance and GPU kernel fusion.
     """
 
     def __init__(self, dim: int, eps: float = 1e-6):
@@ -25,8 +26,9 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        rms = x.norm(2, dim=-1, keepdim=True) / math.sqrt(x.size(-1))
-        return x / (rms + self.eps) * self.weight
+        # Fused: rsqrt(mean(x²) + eps) is much faster than norm(2)/sqrt(D)
+        # PyTorch can fuse this into a single kernel with torch.compile
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight
 
 
 class DeepNorm(nn.Module):

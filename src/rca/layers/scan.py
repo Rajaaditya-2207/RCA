@@ -3,7 +3,7 @@ Parallel Scan Implementation
 =============================
 
 Optimized parallel scan for SSM training.
-Supports: PyTorch (fallback), Triton/CUDA (fast).
+Supports: PyTorch (fallback), Triton/CUDA (fast), XLA.
 
 Author: Rajaaditya.R
 """
@@ -19,6 +19,13 @@ try:
     TRITON_AVAILABLE = True
 except ImportError:
     TRITON_AVAILABLE = False
+
+# XLA support
+try:
+    import torch_xla.core.xla_model as xm
+    XLA_AVAILABLE = True
+except ImportError:
+    XLA_AVAILABLE = False
 
 
 # =============================================================================
@@ -60,88 +67,135 @@ def parallel_scan_linear(
 
 
 # =============================================================================
-# Triton Implementation (Fast!)
+# Triton Implementation (Fast!) — Handles all dimensions + initial state
 # =============================================================================
 
 if TRITON_AVAILABLE:
 
     @triton.jit
-    def _scan_kernel_inner(
+    def _scan_kernel(
         gates_ptr,
         inputs_ptr,
+        initial_ptr,
         output_ptr,
+        B: tl.constexpr,
         S: tl.constexpr,
         D: tl.constexpr,
-        BLOCK_SIZE: tl.constexpr,
+        HAS_INITIAL: tl.constexpr,
+        BLOCK_D: tl.constexpr,
     ):
         """
-        Inner scan kernel — one thread block per batch element.
+        Scan kernel: processes one (batch, dim_chunk) pair.
 
-        Uses efficient sequential accumulation per dimension chunk.
+        Grid: (B, cdiv(D, BLOCK_D))
+        Each program handles one batch element and one chunk of dimensions.
         """
-        pid = tl.program_id(0)
+        pid_b = tl.program_id(0)
+        pid_d = tl.program_id(1)
 
-        # Compute offsets for this batch element
-        gates_offset = pid * S * D
-        inputs_offset = pid * S * D
-        output_offset = pid * S * D
+        # Dimension offsets for this chunk
+        d_offs = pid_d * BLOCK_D + tl.arange(0, BLOCK_D)
+        d_mask = d_offs < D
 
-        CHUNK_SIZE: tl.constexpr = 64 if D >= 64 else D
+        # Base offset for this batch element
+        batch_offset = pid_b * S * D
 
-        # Initialize accumulator
-        acc = tl.zeros([CHUNK_SIZE], dtype=tl.float32)
+        # Load initial state
+        if HAS_INITIAL:
+            init_offset = pid_b * D + d_offs
+            acc = tl.load(initial_ptr + init_offset, mask=d_mask, other=0.0).to(tl.float32)
+        else:
+            acc = tl.zeros([BLOCK_D], dtype=tl.float32)
 
-        # Sequential scan within each batch element
+        # Sequential scan over time steps
         for s in range(S):
-            g_ptr = gates_offset + s * D + tl.arange(0, CHUNK_SIZE)
-            i_ptr = inputs_offset + s * D + tl.arange(0, CHUNK_SIZE)
+            step_offset = batch_offset + s * D + d_offs
+            g = tl.load(gates_ptr + step_offset, mask=d_mask, other=1.0).to(tl.float32)
+            inp = tl.load(inputs_ptr + step_offset, mask=d_mask, other=0.0).to(tl.float32)
 
-            g = tl.load(gates_ptr + g_ptr)
-            inp = tl.load(inputs_ptr + i_ptr)
-
-            # h_t = g_t * h_{t-1} + inp_t
             acc = g * acc + inp
 
-            # Store output for this step
-            o_ptr = output_offset + s * D + tl.arange(0, CHUNK_SIZE)
-            tl.store(output_ptr + o_ptr, acc)
+            tl.store(output_ptr + step_offset, acc, mask=d_mask)
 
-    def triton_parallel_scan(gates: torch.Tensor, inputs: torch.Tensor) -> torch.Tensor:
+    def triton_parallel_scan(
+        gates: torch.Tensor,
+        inputs: torch.Tensor,
+        initial: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """
-        Fast parallel scan using Triton kernels.
+        Fast parallel scan using Triton kernel.
 
+        Handles all dimensions (not just 64) and supports initial state.
         ~10-50x faster than pure PyTorch implementation!
 
         Args:
             gates: [B, S, D] - gate/decay factors
             inputs: [B, S, D] - input contributions
+            initial: [B, D] optional - initial hidden state
 
         Returns:
             h_all: [B, S, D] - all hidden states
         """
         B, S, D = gates.shape
+        output = torch.empty_like(inputs)
 
-        output = torch.zeros_like(inputs)
+        # Choose block size: power of 2, at most 1024
+        BLOCK_D = min(triton.next_power_of_2(D), 1024)
+        num_d_blocks = (D + BLOCK_D - 1) // BLOCK_D
 
-        BLOCK_SIZE = min(256, D)
+        # Create dummy tensor for initial if None
+        has_initial = initial is not None
+        initial_ptr = initial if has_initial else gates  # dummy, won't be read
 
-        _scan_kernel_inner[(B,)](
+        _scan_kernel[(B, num_d_blocks)](
             gates.contiguous(),
             inputs.contiguous(),
+            initial_ptr.contiguous() if has_initial else gates.contiguous(),
             output,
-            S,
-            D,
-            BLOCK_SIZE,
-            num_warps=4,
+            B, S, D,
+            HAS_INITIAL=has_initial,
+            BLOCK_D=BLOCK_D,
+            num_warps=min(8, max(1, BLOCK_D // 32)),
             num_stages=2,
         )
 
         return output
 
 else:
-    def triton_parallel_scan(gates: torch.Tensor, inputs: torch.Tensor) -> torch.Tensor:
+    def triton_parallel_scan(
+        gates: torch.Tensor,
+        inputs: torch.Tensor,
+        initial: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """Fallback to PyTorch."""
-        return parallel_scan_linear(gates, inputs)
+        return parallel_scan_linear(gates, inputs, initial)
+
+
+# =============================================================================
+# XLA-Optimized Scan (for TPUs)
+# =============================================================================
+
+def xla_parallel_scan(
+    gates: torch.Tensor,
+    inputs: torch.Tensor,
+    initial: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    TPU-optimized scan using associative scan pattern.
+
+    Falls back to linear scan but uses XLA-friendly ops
+    to minimize host-device transfers.
+    """
+    B, S, D = gates.shape
+    h = initial if initial is not None else torch.zeros(B, D, device=gates.device, dtype=gates.dtype)
+
+    outputs = []
+    for s in range(S):
+        h = gates[:, s] * h + inputs[:, s]
+        outputs.append(h)
+
+    # Use torch.stack which XLA can optimize better than list comprehension
+    return torch.stack(outputs, dim=1)
 
 
 # =============================================================================
@@ -199,7 +253,6 @@ def chunkwise_parallel_scan(
         i_chunk = inputs_c[:, c]  # [B, chunk_size, D]
 
         # Intra-chunk: cumulative gate products for matrix form
-        # g_cum[t] = prod(g[s] for s in range(t+1..chunk_end))
         chunk_out = parallel_scan_linear(g_chunk, i_chunk, h)
         all_outputs.append(chunk_out)
 
@@ -229,8 +282,9 @@ def compute_parallel_scan(
     Compute parallel scan using the best available implementation.
 
     Priority:
-    1. Triton (GPU) — fastest
-    2. PyTorch — fallback
+    1. Triton (GPU) — fastest, now handles all dims + initial state
+    2. XLA (TPU) — TPU-optimized
+    3. PyTorch — fallback
 
     Args:
         gates: [B, S, D] - gate/decay factors
@@ -241,10 +295,15 @@ def compute_parallel_scan(
     Returns:
         h_all: [B, S, D] - all hidden states
     """
-    if use_cuda and gates.is_cuda and TRITON_AVAILABLE and initial is None:
+    # Triton path (GPU)
+    if use_cuda and gates.is_cuda and TRITON_AVAILABLE:
         try:
-            return triton_parallel_scan(gates, inputs)
+            return triton_parallel_scan(gates, inputs, initial)
         except Exception:
             pass
+
+    # XLA path (TPU)
+    if XLA_AVAILABLE and str(gates.device).startswith("xla"):
+        return xla_parallel_scan(gates, inputs, initial)
 
     return parallel_scan_linear(gates, inputs, initial)

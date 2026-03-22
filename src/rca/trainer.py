@@ -2,7 +2,8 @@
 RCA Trainer
 ===========
 
-Training loop with checkpointing and evaluation.
+Training loop with gradient checkpointing, DDP, FSDP, XLA,
+torch.compile, and automatic mixed precision.
 
 Author: Rajaaditya.R
 """
@@ -16,6 +17,34 @@ from typing import Optional, Dict, Any
 import os
 import math
 import time
+
+# Optional imports for distributed training
+try:
+    import torch.distributed as dist
+    from torch.nn.parallel import DistributedDataParallel as DDP
+    from torch.utils.data.distributed import DistributedSampler
+    DDP_AVAILABLE = True
+except ImportError:
+    DDP_AVAILABLE = False
+
+try:
+    from torch.distributed.fsdp import (
+        FullyShardedDataParallel as FSDP,
+        MixedPrecision,
+        ShardingStrategy,
+    )
+    from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+    FSDP_AVAILABLE = True
+except ImportError:
+    FSDP_AVAILABLE = False
+
+# TPU/XLA support
+try:
+    import torch_xla.core.xla_model as xm
+    import torch_xla.distributed.parallel_loader as pl
+    XLA_AVAILABLE = True
+except ImportError:
+    XLA_AVAILABLE = False
 
 
 @dataclass
@@ -50,6 +79,16 @@ class TrainingArguments:
     # CUDA
     use_cuda_scan: bool = True
 
+    # Distributed
+    use_ddp: bool = False
+    use_fsdp: bool = False
+    use_xla: bool = False
+    local_rank: int = -1
+
+    # torch.compile
+    use_torch_compile: bool = False
+    compile_mode: str = "reduce-overhead"
+
 
 class RCATrainer:
     """
@@ -58,7 +97,12 @@ class RCATrainer:
     Supports:
     - Mixed precision (fp16/bf16)
     - Gradient accumulation
+    - Gradient checkpointing (via model config)
     - Cosine LR schedule with warmup
+    - DDP multi-GPU training
+    - FSDP for large models (5B+)
+    - TPU/XLA training
+    - torch.compile acceleration
     - Automatic checkpointing
     """
 
@@ -76,12 +120,53 @@ class RCATrainer:
         self.eval_dataset = eval_dataset
         self.collate_fn = collate_fn
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Determine device
+        if args.use_xla and XLA_AVAILABLE:
+            self.device = xm.xla_device()
+        elif args.use_ddp and args.local_rank >= 0:
+            self.device = torch.device(f"cuda:{args.local_rank}")
+            torch.cuda.set_device(self.device)
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         self.model.to(self.device)
+
+        # Wrap model for distributed training
+        if args.use_fsdp and FSDP_AVAILABLE and dist.is_initialized():
+            # Import block types for auto-wrapping
+            from .modeling.rca_model import MambaMixBlock, GLABlock, ReasoningBlock
+            auto_wrap = transformer_auto_wrap_policy(
+                transformer_layer_cls={MambaMixBlock, GLABlock, ReasoningBlock}
+            )
+            mp = None
+            if args.bf16:
+                mp = MixedPrecision(
+                    param_dtype=torch.bfloat16,
+                    reduce_dtype=torch.bfloat16,
+                    buffer_dtype=torch.bfloat16,
+                )
+            elif args.fp16:
+                mp = MixedPrecision(
+                    param_dtype=torch.float16,
+                    reduce_dtype=torch.float16,
+                    buffer_dtype=torch.float16,
+                )
+            self.model = FSDP(
+                self.model,
+                auto_wrap_policy=auto_wrap,
+                mixed_precision=mp,
+                sharding_strategy=ShardingStrategy.FULL_SHARD,
+            )
+        elif args.use_ddp and DDP_AVAILABLE and dist.is_initialized():
+            self.model = DDP(self.model, device_ids=[args.local_rank])
+
+        # torch.compile
+        if args.use_torch_compile and hasattr(torch, "compile"):
+            self.model = torch.compile(self.model, mode=args.compile_mode)
 
         # Optimizer
         self.optimizer = optim.AdamW(
-            model.parameters(),
+            self.model.parameters(),
             lr=args.learning_rate,
             weight_decay=args.weight_decay,
         )
@@ -99,16 +184,36 @@ class RCATrainer:
         )
         return self.args.learning_rate * 0.5 * (1 + math.cos(math.pi * progress))
 
+    def _is_main_process(self) -> bool:
+        """Returns True if this is the main process (for logging/saving)."""
+        if self.args.use_xla and XLA_AVAILABLE:
+            return xm.is_master_ordinal()
+        if dist.is_initialized():
+            return dist.get_rank() == 0
+        return True
+
     def train(self) -> Dict[str, float]:
         """Run training loop."""
         assert self.train_dataset is not None, "train_dataset required"
 
+        # Build data loader (with distributed sampler if needed)
+        sampler = None
+        shuffle = True
+        if self.args.use_ddp and dist.is_initialized():
+            sampler = DistributedSampler(self.train_dataset)
+            shuffle = False
+
         train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.args.per_device_train_batch_size,
-            shuffle=True,
+            shuffle=shuffle,
+            sampler=sampler,
             collate_fn=self.collate_fn,
         )
+
+        # XLA parallel loader
+        if self.args.use_xla and XLA_AVAILABLE:
+            train_loader = pl.MpDeviceLoader(train_loader, self.device)
 
         total_steps = (
             len(train_loader)
@@ -118,9 +223,9 @@ class RCATrainer:
 
         os.makedirs(self.args.output_dir, exist_ok=True)
 
-        # Mixed precision
+        # Mixed precision scaler (GPU only, not for bf16 or XLA)
         scaler = None
-        if self.args.fp16 and self.device.type == "cuda":
+        if self.args.fp16 and self.device.type == "cuda" and not self.args.use_fsdp:
             scaler = torch.amp.GradScaler("cuda")
 
         self.model.train()
@@ -130,6 +235,9 @@ class RCATrainer:
 
         for epoch in range(self.args.num_train_epochs):
             self.epoch = epoch
+            if sampler is not None:
+                sampler.set_epoch(epoch)
+
             for step, batch in enumerate(train_loader):
                 # Move to device
                 if isinstance(batch, dict):
@@ -185,31 +293,51 @@ class RCATrainer:
                         )
                         scaler.step(self.optimizer)
                         scaler.update()
+                    elif self.args.use_xla and XLA_AVAILABLE:
+                        # XLA optimizer step
+                        nn.utils.clip_grad_norm_(
+                            self.model.parameters(), self.args.max_grad_norm
+                        )
+                        xm.optimizer_step(self.optimizer)
                     else:
                         nn.utils.clip_grad_norm_(
                             self.model.parameters(), self.args.max_grad_norm
                         )
                         self.optimizer.step()
 
-                    self.optimizer.zero_grad()
+                    # set_to_none=True is faster than zero_grad()
+                    self.optimizer.zero_grad(set_to_none=True)
                     self.global_step += 1
 
-                    # Logging
-                    if self.global_step % self.args.logging_steps == 0:
+                    # Logging (main process only)
+                    if (
+                        self.global_step % self.args.logging_steps == 0
+                        and self._is_main_process()
+                    ):
                         avg = log_loss / self.args.logging_steps
                         elapsed = time.time() - t0
+                        tokens_per_sec = (
+                            self.args.logging_steps
+                            * self.args.per_device_train_batch_size
+                            * self.args.gradient_accumulation_steps
+                            * input_ids.shape[1]
+                            / elapsed
+                        )
                         print(
                             f"Step {self.global_step} | "
                             f"Loss {avg:.4f} | "
                             f"LR {lr:.2e} | "
+                            f"Tok/s {tokens_per_sec:.0f} | "
                             f"Time {elapsed:.1f}s"
                         )
                         log_loss = 0.0
+                        t0 = time.time()
 
                     # Save
                     if (
                         self.args.save_steps > 0
                         and self.global_step % self.args.save_steps == 0
+                        and self._is_main_process()
                     ):
                         self._save_checkpoint()
 
@@ -229,7 +357,8 @@ class RCATrainer:
                 self.model.train()
 
         # Final save
-        self._save_checkpoint(final=True)
+        if self._is_main_process():
+            self._save_checkpoint(final=True)
 
         return {"loss": total_loss / max(1, self.global_step)}
 
@@ -243,6 +372,9 @@ class RCATrainer:
             batch_size=self.args.per_device_eval_batch_size,
             collate_fn=self.collate_fn,
         )
+
+        if self.args.use_xla and XLA_AVAILABLE:
+            eval_loader = pl.MpDeviceLoader(eval_loader, self.device)
 
         self.model.eval()
         total_loss = 0.0
@@ -267,11 +399,13 @@ class RCATrainer:
         avg_loss = total_loss / max(1, n_batches)
         perplexity = math.exp(min(avg_loss, 100))
 
-        print(f"Eval | Loss {avg_loss:.4f} | Perplexity {perplexity:.2f}")
+        if self._is_main_process():
+            print(f"Eval | Loss {avg_loss:.4f} | Perplexity {perplexity:.2f}")
 
         if avg_loss < self.best_eval_loss:
             self.best_eval_loss = avg_loss
-            self._save_checkpoint(best=True)
+            if self._is_main_process():
+                self._save_checkpoint(best=True)
 
         return {"eval_loss": avg_loss, "perplexity": perplexity}
 
@@ -286,10 +420,18 @@ class RCATrainer:
                 self.args.output_dir, f"checkpoint-{self.global_step}"
             )
 
-        if hasattr(self.model, "save_pretrained"):
-            self.model.save_pretrained(path)
+        # Unwrap DDP/FSDP/compiled model
+        model = self.model
+        if hasattr(model, "module"):
+            model = model.module
+        if hasattr(model, "_orig_mod"):
+            model = model._orig_mod
+
+        if hasattr(model, "save_pretrained"):
+            model.save_pretrained(path)
         else:
             os.makedirs(path, exist_ok=True)
-            torch.save(self.model.state_dict(), os.path.join(path, "model.pt"))
+            torch.save(model.state_dict(), os.path.join(path, "model.pt"))
 
-        print(f"Saved checkpoint to {path}")
+        if self._is_main_process():
+            print(f"Saved checkpoint to {path}")

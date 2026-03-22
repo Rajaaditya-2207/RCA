@@ -66,6 +66,11 @@ class RCAConfig:
     gla_zone_end: float = 0.85
     use_mqa: bool = False
 
+    # Performance / Training Optimization
+    gradient_checkpointing: bool = False
+    use_torch_compile: bool = False
+    compile_mode: str = "reduce-overhead"
+
     def __post_init__(self):
         """Validate config after initialization."""
         assert self.state_dim > 0, "state_dim must be positive"
@@ -93,7 +98,7 @@ class RCAConfig:
             return cls.from_dict(json.load(f))
 
     # =========================================================================
-    # Presets
+    # Legacy Presets (kept for backward compat)
     # =========================================================================
 
     @classmethod
@@ -190,4 +195,192 @@ class RCAConfig:
             ssm_zone_end=0.6,
             gla_zone_end=0.85,
             use_mqa=False,
+        )
+
+    # =========================================================================
+    # Production Presets — Ultra-Reasoning with seq_len=4096
+    # =========================================================================
+
+    @classmethod
+    def rca_100m(cls) -> "RCAConfig":
+        """~100M params — Ultra-Reasoning, fits easily on T4/P100.
+
+        Training budget (7 hrs):
+          T4:   ~800M tokens   (batch=8,  grad_accum=4,  fp16)
+          P100: ~1.2B tokens   (batch=8,  grad_accum=4,  fp16)
+        """
+        return cls(
+            state_dim=512,
+            n_layers=12,
+            n_heads=8,
+            ssm_expand=2,
+            max_seq_len=4096,
+            num_attention_layers=0,
+            attention_every_n=0,
+            use_hybrid_attention=False,
+            dropout=0.1,
+            use_ultra_reasoning=True,
+            use_glu_ffn=True,
+            gla_heads=8,
+            gla_expand_k=1.0,
+            gla_expand_v=2.0,
+            sliding_window_size=512,
+            num_memory_tokens=32,
+            ssm_zone_end=0.6,
+            gla_zone_end=0.85,
+            use_mqa=False,
+            gradient_checkpointing=False,
+        )
+
+    @classmethod
+    def rca_500m(cls) -> "RCAConfig":
+        """~500M params — Ultra-Reasoning, T4/P100 with checkpointing.
+
+        Training budget (7 hrs):
+          T4:   ~300M tokens   (batch=2, grad_accum=16, fp16, grad_ckpt)
+          P100: ~500M tokens   (batch=2, grad_accum=16, fp16, grad_ckpt)
+        """
+        return cls(
+            state_dim=1024,
+            n_layers=20,
+            n_heads=16,
+            ssm_expand=2,
+            max_seq_len=4096,
+            num_attention_layers=0,
+            attention_every_n=0,
+            use_hybrid_attention=False,
+            dropout=0.1,
+            use_ultra_reasoning=True,
+            use_glu_ffn=True,
+            gla_heads=16,
+            gla_expand_k=1.0,
+            gla_expand_v=2.0,
+            sliding_window_size=512,
+            num_memory_tokens=32,
+            ssm_zone_end=0.6,
+            gla_zone_end=0.85,
+            use_mqa=False,
+            gradient_checkpointing=True,
+        )
+
+    @classmethod
+    def rca_1b(cls) -> "RCAConfig":
+        """~1B params — Ultra-Reasoning, T4/P100 with aggressive checkpointing.
+
+        Training budget (7 hrs):
+          T4:   ~150M tokens   (batch=1, grad_accum=32, fp16, grad_ckpt)
+          P100: ~250M tokens   (batch=1, grad_accum=32, fp16, grad_ckpt)
+        """
+        return cls(
+            state_dim=1280,
+            n_layers=28,
+            n_heads=20,
+            ssm_expand=2,
+            max_seq_len=4096,
+            num_attention_layers=0,
+            attention_every_n=0,
+            use_hybrid_attention=False,
+            dropout=0.05,
+            use_ultra_reasoning=True,
+            use_glu_ffn=True,
+            gla_heads=20,
+            gla_expand_k=1.0,
+            gla_expand_v=2.0,
+            sliding_window_size=512,
+            num_memory_tokens=32,
+            ssm_zone_end=0.6,
+            gla_zone_end=0.85,
+            use_mqa=True,
+            gradient_checkpointing=True,
+        )
+
+    @classmethod
+    def rca_5b(cls) -> "RCAConfig":
+        """~5B params — Ultra-Reasoning, requires multi-GPU (FSDP).
+
+        Training budget (1T tokens):
+          4×A100 80GB: ~21 days  (FSDP, bf16)
+        """
+        return cls(
+            state_dim=2048,
+            n_layers=48,
+            n_heads=32,
+            ssm_expand=2,
+            max_seq_len=4096,
+            num_attention_layers=0,
+            attention_every_n=0,
+            use_hybrid_attention=False,
+            dropout=0.05,
+            use_ultra_reasoning=True,
+            use_glu_ffn=True,
+            gla_heads=32,
+            gla_expand_k=1.0,
+            gla_expand_v=2.0,
+            sliding_window_size=512,
+            num_memory_tokens=64,
+            ssm_zone_end=0.6,
+            gla_zone_end=0.85,
+            use_mqa=True,
+            gradient_checkpointing=True,
+        )
+
+    @classmethod
+    def rca_10b(cls) -> "RCAConfig":
+        """~10B params — Ultra-Reasoning, requires 8×A100 (FSDP).
+
+        Training budget (1T tokens):
+          8×A100 80GB: ~30 days  (FSDP, bf16)
+        """
+        return cls(
+            state_dim=3072,
+            n_layers=48,
+            n_heads=32,
+            ssm_expand=2,
+            max_seq_len=4096,
+            num_attention_layers=0,
+            attention_every_n=0,
+            use_hybrid_attention=False,
+            dropout=0.05,
+            use_ultra_reasoning=True,
+            use_glu_ffn=True,
+            gla_heads=32,
+            gla_expand_k=1.0,
+            gla_expand_v=2.0,
+            sliding_window_size=512,
+            num_memory_tokens=64,
+            ssm_zone_end=0.6,
+            gla_zone_end=0.85,
+            use_mqa=True,
+            gradient_checkpointing=True,
+        )
+
+    @classmethod
+    def rca_100b(cls) -> "RCAConfig":
+        """~100B params — Ultra-Reasoning, requires large cluster or TPU pod.
+
+        Training budget (1T tokens):
+          TPU v4-256 pod: ~45 days  (XLA FSDP)
+          64×A100 80GB:  ~45 days  (FSDP, bf16)
+        """
+        return cls(
+            state_dim=7680,
+            n_layers=80,
+            n_heads=64,
+            ssm_expand=2,
+            max_seq_len=4096,
+            num_attention_layers=0,
+            attention_every_n=0,
+            use_hybrid_attention=False,
+            dropout=0.05,
+            use_ultra_reasoning=True,
+            use_glu_ffn=True,
+            gla_heads=64,
+            gla_expand_k=1.0,
+            gla_expand_v=2.0,
+            sliding_window_size=512,
+            num_memory_tokens=128,
+            ssm_zone_end=0.6,
+            gla_zone_end=0.85,
+            use_mqa=True,
+            gradient_checkpointing=True,
         )

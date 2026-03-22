@@ -6,6 +6,8 @@ DeltaNet-style gated linear attention with data-dependent gating.
 Acts as "Working Memory" — associative recall power of attention
 while maintaining linear-time complexity.
 
+v2.0 — Vectorized chunk processing (no Python loops in inner chunk).
+
 Author: Rajaaditya.R
 """
 
@@ -27,7 +29,7 @@ class GatedLinearAttention(nn.Module):
     Where α_t = σ(W_α · x_t) is a data-dependent gate controlling
     how much old memory to retain.
 
-    - Training: chunkwise parallel computation
+    - Training: vectorized chunkwise parallel computation
     - Inference: O(1) recurrent form
     """
 
@@ -72,7 +74,7 @@ class GatedLinearAttention(nn.Module):
         chunk_size: int = 64,
     ) -> torch.Tensor:
         """
-        Parallel forward for training using chunkwise decomposition.
+        Parallel forward for training using vectorized chunkwise decomposition.
 
         Args:
             x: [B, S, D] input tensor
@@ -126,7 +128,7 @@ class GatedLinearAttention(nn.Module):
             vc = v_c[:, c]  # [B, L, H, dv]
             ac = alpha_c[:, c]  # [B, L, H]
 
-            chunk_out, state = self._process_chunk(qc, kc, vc, ac, state)
+            chunk_out, state = self._process_chunk_vectorized(qc, kc, vc, ac, state)
             outputs.append(chunk_out)
 
         output = torch.cat(outputs, dim=1)  # [B, S_padded, H*dv]
@@ -141,7 +143,7 @@ class GatedLinearAttention(nn.Module):
 
         return self.out_proj(output)
 
-    def _process_chunk(
+    def _process_chunk_vectorized(
         self,
         q: torch.Tensor,   # [B, L, H, dk]
         k: torch.Tensor,   # [B, L, H, dk]
@@ -149,29 +151,99 @@ class GatedLinearAttention(nn.Module):
         alpha: torch.Tensor,  # [B, L, H]
         state: torch.Tensor,  # [B, H, dk, dv]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Process a single chunk with causal intra-chunk attention + state."""
+        """
+        Vectorized chunk processing — NO inner Python loop.
+
+        Uses cumulative product of decay gates + einsum to compute
+        the full chunk output in parallel.
+
+        Math:
+            For position t in chunk:
+            S_t = (∏_{j=1..t} α_j) * S_prev + Σ_{i=1..t} (∏_{j=i+1..t} α_j) * k_i^T v_i
+            o_t = q_t · S_t
+
+        This decomposes into:
+            1. "cross-chunk" term:  query × (cumulative_decay × prev_state)
+            2. "intra-chunk" term:  causal dot-product with decayed KV within chunk
+        """
         B, L, H, dk = q.shape
         dv = v.shape[-1]
 
-        outputs = []
-        local_state = state.clone()
+        # ── Step 1: Compute cumulative decay products ──
+        # alpha: [B, L, H] → log-space for numerical stability
+        log_alpha = torch.log(alpha.clamp(min=1e-6))  # [B, L, H]
+        # Cumulative sum in log-space → cumulative product
+        cumlog = torch.cumsum(log_alpha, dim=1)  # [B, L, H]
 
-        for t in range(L):
-            qt = q[:, t]  # [B, H, dk]
-            kt = k[:, t]  # [B, H, dk]
-            vt = v[:, t]  # [B, H, dv]
-            at = alpha[:, t].unsqueeze(-1).unsqueeze(-1)  # [B, H, 1, 1]
+        # Total decay across the chunk (for updating state)
+        total_decay = torch.exp(cumlog[:, -1, :])  # [B, H]
 
-            # Decay old state and add new KV pair
-            local_state = at * local_state + torch.einsum("bhk,bhv->bhkv", kt, vt)
+        # ── Step 2: Cross-chunk contribution ──
+        # How much of the previous state each position sees
+        # Position t sees: exp(cumlog_t) * state
+        cross_decay = torch.exp(cumlog)  # [B, L, H]
 
-            # Query the state
-            out_t = torch.einsum("bhk,bhkv->bhv", qt, local_state)  # [B, H, dv]
-            outputs.append(out_t)
+        # Query the decayed previous state: q · (decay * S_prev)
+        # cross_decay: [B, L, H] → [B, L, H, 1, 1]
+        # state: [B, H, dk, dv]
+        # First: compute decayed_state per position: [B, L, H, dk, dv]
+        decayed_state = cross_decay.unsqueeze(-1).unsqueeze(-1) * state.unsqueeze(1)
+        # Query it: q @ decayed_state → output
+        # q: [B, L, H, dk] → [B, L, H, 1, dk]
+        # decayed_state: [B, L, H, dk, dv]
+        cross_out = torch.einsum("blhk,blhkv->blhv", q, decayed_state)
 
-        # Stack: [B, L, H, dv] -> reshape to [B, L, H*dv]
-        stacked = torch.stack(outputs, dim=1)  # [B, L, H, dv]
-        return stacked.reshape(B, L, H * dv), local_state
+        # ── Step 3: Intra-chunk (causal within chunk) ──
+        # For positions i ≤ j, the relative decay from i to j is:
+        #   exp(cumlog_j - cumlog_i)
+        # Build [B, L, L, H] causal decay mask
+        # cumlog: [B, L, H]
+        relative_decay = cumlog.unsqueeze(1) - cumlog.unsqueeze(2)  # [B, L_j, L_i, H]
+        relative_decay = torch.exp(relative_decay)  # [B, L_j, L_i, H]
+
+        # Causal mask: only allow i <= j
+        causal_mask = torch.tril(torch.ones(L, L, device=q.device, dtype=q.dtype))
+        # causal_mask: [L, L] → [1, L, L, 1]
+        relative_decay = relative_decay * causal_mask.unsqueeze(0).unsqueeze(-1)
+
+        # Compute causal attention-like scores
+        # q: [B, L_j, H, dk], k: [B, L_i, H, dk]
+        # → attn: [B, H, L_j, L_i]
+        attn = torch.einsum("bjhk,bihk->bhjl", q, k)  # note: j=query, i=key → [B, H, j, i]
+
+        # Wait — let's be more careful with dimensions.
+        # relative_decay is [B, L_j, L_i, H] → need [B, H, L_j, L_i]
+        decay_matrix = relative_decay.permute(0, 3, 1, 2)  # [B, H, L_j, L_i]
+
+        # attn: [B, H, L_j, L_i]  (q_j · k_i)
+        attn = torch.einsum("bjhk,bihk->bhji", q, k)  # [B, H, j, i]
+
+        # Apply decay
+        attn = attn * decay_matrix  # [B, H, L_j, L_i]
+
+        # Attend to values:  sum_i attn[j, i] * v_i
+        # v: [B, L_i, H, dv] → [B, H, L_i, dv]
+        v_perm = v.permute(0, 2, 1, 3)  # [B, H, L, dv]
+        intra_out = torch.matmul(attn, v_perm)  # [B, H, L_j, dv]
+        intra_out = intra_out.permute(0, 2, 1, 3)  # [B, L, H, dv]
+
+        # ── Step 4: Combine ──
+        output = cross_out + intra_out  # [B, L, H, dv]
+
+        # ── Step 5: Update state ──
+        # S_new = total_decay * S_prev + sum_t (decay_from_t_to_end * k_t^T v_t)
+        # decay from position t to end of chunk:
+        #   exp(cumlog[-1] - cumlog[t])
+        decay_to_end = torch.exp(cumlog[:, -1:, :] - cumlog)  # [B, L, H]
+
+        # Weighted KV: sum_t decay_to_end[t] * k_t^T v_t
+        # k: [B, L, H, dk], v: [B, L, H, dv], decay_to_end: [B, L, H]
+        weighted_k = k * decay_to_end.unsqueeze(-1)  # [B, L, H, dk]
+        kv_update = torch.einsum("blhk,blhv->bhkv", weighted_k, v)
+
+        new_state = total_decay.unsqueeze(-1).unsqueeze(-1) * state + kv_update
+
+        return output.reshape(B, L, H * dv), new_state
 
     def forward_recurrent(
         self,

@@ -1,10 +1,10 @@
 """
-RCA — Recursive Compression Architecture
-=========================================
+RCA — Recursive Compression Architecture v2.0
+==============================================
 
-A production-ready, memory-efficient language model architecture
-combining Selective State Space Models, Hybrid Attention, and
-CUDA/Triton-accelerated parallel scan.
+Ultra-Reasoning Architecture combining Mamba SSM, Gated Linear
+Attention (GLA), and Sliding Window Attention across specialized
+cognitive zones — with Triton/XLA-accelerated parallel scan.
 
 Author: Rajaaditya.R
 Contact: rajaaditya.aadhi@gmail.com
@@ -13,7 +13,7 @@ Quick start::
 
     from rca import RCAModel, RCAConfig
 
-    config = RCAConfig.rca_base()
+    config = RCAConfig.rca_100m()
     model = RCAModel(config)
 
     print(f"Parameters: {model.count_parameters():,}")
@@ -30,9 +30,15 @@ from .trainer import RCATrainer, TrainingArguments
 from .generator import RCAGenerator
 from .utils.benchmark import RCABenchmark
 from .utils.export import export_to_onnx, save_pretrained, load_pretrained
+from .converter import (
+    export_safetensors, load_safetensors,
+    export_gguf,
+)
 from .layers.scan import compute_parallel_scan, parallel_scan_linear, TRITON_AVAILABLE
 from .layers.ssm import SelectiveStateSpaceModel, SimpleStateSpaceModel
 from .layers.attention import EfficientAttention
+from .layers.gla import GatedLinearAttention
+from .layers.sliding_attention import SlidingWindowAttention
 from .layers.norm import RMSNorm, DeepNorm
 from .layers.positions import ALiBiPositionEmbedding, RotaryPositionEmbedding
 
@@ -51,6 +57,10 @@ __all__ = [
     "TrainingArguments",
     # Generation
     "RCAGenerator",
+    # Converter / Export
+    "export_safetensors",
+    "load_safetensors",
+    "export_gguf",
     # Utilities
     "RCABenchmark",
     "export_to_onnx",
@@ -63,6 +73,8 @@ __all__ = [
     "SelectiveStateSpaceModel",
     "SimpleStateSpaceModel",
     "EfficientAttention",
+    "GatedLinearAttention",
+    "SlidingWindowAttention",
     "RMSNorm",
     "DeepNorm",
     "ALiBiPositionEmbedding",
